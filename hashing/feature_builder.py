@@ -10,7 +10,7 @@ class TenDimProjector:
     Here we show a simple handcrafted summary approach for clarity.
     """
     def __init__(self):
-        pass
+        pass    
 
     @staticmethod
     def _entropy(values: List[float]) -> float:
@@ -26,49 +26,54 @@ class TenDimProjector:
                 hasher: FeatureHasher) -> np.ndarray:
         # Normalize tags
         item_norm = [hasher.normalize_tag(t) for t in item_tags]
-        # Summaries
+        # User bias stats capture user-side preference strength
         bias_vals = list(user_bias.values()) if user_bias else [0.0]
         mean_bias = float(np.mean(bias_vals))
-        max_bias = float(np.max(bias_vals))
-        entropy_bias = self._entropy(bias_vals)
+        bias_std = float(np.std(bias_vals))
 
         num_tags = float(len(item_norm))
-        # overlap_sum: sum of bias[tag] for tags present in item
+        num_tags_log = float(np.log1p(num_tags) / np.log1p(50.0))  # bounded in [0,1]
+
+        # Overlap features encode how much this item's tags align with the user
         overlap_sum = 0.0
         overlap_max = 0.0
         for t in item_norm:
             w = float(user_bias.get(t, 0.0))
             overlap_sum += w
             overlap_max = max(overlap_max, w)
+        overlap_mean = overlap_sum / (num_tags + 1e-6)
 
-        # simple context encoding: meal_slot if present
-        meal_slot = ctx.get("meal_slot", "")
-        meal_slot_code = {
-            "breakfast": 0.0,
-            "lunch": 0.5,
-            "dinner": 1.0
-        }.get(meal_slot.lower(), 0.0)
+        # Hashed tag signature (order-invariant) injects item identity without using item_id
+        # Each tag contributes a signed value derived from its hash index; stats keep dimension fixed.
+        signed_vals = []
+        for t in item_norm:
+            idx, sign = hasher.index_and_sign(t)
+            signed = sign * (idx / float(hasher.dim))  # normalize index into [-1,1]
+            signed_vals.append(signed)
 
-        # 10 features (example):
-        # 1 mean_bias, 2 max_bias, 3 entropy_bias,
-        # 4 num_tags, 5 overlap_sum, 6 overlap_max,
-        # 7 meal_slot_code, 8 popularity (optional, here 0),
-        # 9 item_tag_diversity (proxy = 1/num_tags), 10 bias_std
-        bias_std = float(np.std(bias_vals))
-        popularity = 0.0  # placeholder if you have it
-        item_diversity_proxy = float(1.0 / (num_tags + 1e-6))
+        if not signed_vals:
+            signed_vals = [0.0]
 
+        signed_vals = np.array(signed_vals, dtype=np.float32)
+        hash_signed_mean = float(np.mean(signed_vals))          # differentiates by index distribution
+        hash_signed_std = float(np.std(signed_vals))            # spread of hashed positions
+        abs_vals = np.abs(signed_vals)
+        hash_abs_mean = float(np.mean(abs_vals))                # collision-resistant magnitude signal
+        hash_abs_max = float(np.max(abs_vals))                  # highlights any single dominant tag hash
+        hash_l2 = float(np.linalg.norm(signed_vals))            # overall energy, scales with count and positions
+
+        # 10 features total; balance user stats, overlap, and hashed signatures to avoid collapse.
         features = np.array([
-            mean_bias,
-            max_bias,
-            entropy_bias,
-            num_tags,
-            overlap_sum,
-            overlap_max,
-            meal_slot_code,
-            popularity,
-            item_diversity_proxy,
-            bias_std
+            mean_bias,          # user preference center
+            bias_std,           # user preference spread
+            overlap_mean,       # average alignment per tag
+            overlap_max,        # strongest aligned tag
+            num_tags_log,       # tag count (log scaled)
+            hash_signed_mean,   # signed hash center
+            hash_signed_std,    # signed hash spread
+            hash_abs_mean,      # magnitude center (order-invariant)
+            hash_abs_max,       # strongest hash magnitude
+            hash_l2             # overall hash energy
         ], dtype=np.float32)
 
         return features
