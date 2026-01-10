@@ -9,24 +9,23 @@ from typing import Dict, List, Tuple
 
 
 # ========== Utils ==========
-def update_user_tags(user_tags, dish_tags, action: Action, alpha=0.1):
+def update_user_tags(user_tags, dish_tags, action: Action, alpha=0.01):
     
     if len(user_tags) != len(dish_tags):
         raise ValueError(f"Số tags không khớp: user_tags={len(user_tags)}, dish_tags={len(dish_tags)}")
     
-    delta = alpha * reward(action) * dish_tags
-    next_state = user_tags + delta
+    next_state = (1 - alpha) * user_tags + alpha * dish_tags
     next_state = np.clip(next_state, 0.0, 5.0)
     return next_state
 
 
 def reward(action: Action) -> float:
     rewards = {
-        Action.DETAILS: 0.2,
+        Action.DETAILS: 0.05,
         Action.ADD_TO_CART: 0.6,
         Action.ORDER: 1.0,
         Action.CANCEL_ORDER: -0.8,
-        Action.REMOVE_FROM_CART: -0.2
+        Action.REMOVE_FROM_CART: -0.3
     }
     return rewards.get(action, 0.0)
 

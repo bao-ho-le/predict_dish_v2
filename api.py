@@ -84,6 +84,7 @@ async def push_replay_buffer(req: UserAction):
     r = reward(action)
 
     user_bias_update = vector_to_named_dict(tag_order, next_state)
+    # kết quả: {"spicy": 2.5, "vegan": 1.0, "grill": 0.0}
 
     transition = Transition(
         user_bias= vector_to_named_dict(tag_order, user_vec),
